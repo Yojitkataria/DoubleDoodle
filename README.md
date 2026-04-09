@@ -19,6 +19,18 @@ A modern React-based frontend application for a WebRTC collaboration platform fe
 - **Input Validation**: Express-validator for request validation
 - **Security**: Helmet, CORS, and error handling
 
+## 🖼️ Screenshots
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/dd31697c-1387-4124-97c3-89311bc3045c" width="45%" />
+  <img src="https://github.com/user-attachments/assets/f9b940a4-284c-44ea-a998-373c552d3b7f" width="45%" />
+</p>
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/6172cfca-7b05-4f44-9b00-ae8bd6e0c5f7" width="45%" />
+  <img src="https://github.com/user-attachments/assets/710adda7-f6bc-4efd-9dda-e1a362fe2b76" width="45%" />
+</p>
+
 ## 🛠️ Tech Stack
 
 ### Frontend
@@ -212,6 +224,7 @@ graph TD
     J -- "Updates canvas" --> B
     J -- "Updates chat" --> D
 ```
+
 
 ## 🔮 Future Enhancements
 
