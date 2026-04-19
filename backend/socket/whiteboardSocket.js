@@ -127,6 +127,18 @@ const initializeSocket = (ioInstance) => {
             { _id: room.whiteboardId, isActive: true },
             { $push: { objects: action.data } }
           );
+          return;
+        }
+
+        // Persist full-board clear so late joiners see an empty board.
+        if (action.type === 'CLEAR') {
+          const room = await Room.findOne({ roomId, isActive: true }).select('whiteboardId');
+          if (!room?.whiteboardId) return;
+
+          await Whiteboard.updateOne(
+            { _id: room.whiteboardId, isActive: true },
+            { $set: { objects: [] } }
+          );
         }
       } catch (error) {
         console.error('drawing-action handler error:', error);

@@ -303,16 +303,32 @@ const WhiteboardCanvas = forwardRef(
       emitAction({ type: 'ADD', data: obj.toObject(['id']) });
     }, [emitAction, updateHistoryButtons]);
 
+    const clear = useCallback(() => {
+      const canvas = fabricCanvasRef.current;
+      if (!canvas) return;
+
+      canvas.clear();
+      canvas.backgroundColor = '#ffffff';
+      canvas.requestRenderAll();
+
+      myHistory.current = [];
+      myRedo.current = [];
+      updateHistoryButtons();
+
+      emitAction({ type: 'CLEAR' });
+    }, [emitAction, updateHistoryButtons]);
+
     useImperativeHandle(
       ref,
       () => ({
         download,
         undo,
         redo,
+        clear,
         stampShape,
         addFabricObject,
       }),
-      [download, undo, redo, stampShape, addFabricObject],
+      [download, undo, redo, clear, stampShape, addFabricObject],
     );
 
     useEffect(() => {
@@ -568,6 +584,17 @@ const WhiteboardCanvas = forwardRef(
           // If a remote user removed something we had in local stacks, keep stacks consistent.
           myHistory.current = myHistory.current.filter((o) => o?.id !== action.id);
           myRedo.current = myRedo.current.filter((o) => o?.id !== action.id);
+          updateHistoryButtons();
+          return;
+        }
+
+        if (action.type === 'CLEAR') {
+          canvas.clear();
+          canvas.backgroundColor = '#ffffff';
+          canvas.requestRenderAll();
+
+          myHistory.current = [];
+          myRedo.current = [];
           updateHistoryButtons();
         }
       };
