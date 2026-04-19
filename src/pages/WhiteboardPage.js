@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import io from 'socket.io-client';
@@ -24,14 +24,15 @@ const WhiteboardPage = () => {
   // Critical: keep BOTH state + refs so Fabric event handlers always see latest values.
   const [activeTool, setActiveToolState] = useState('pen');
   const activeToolRef = useRef('pen');
-  const setActiveTool = (t) => {
+  const setActiveTool = useCallback((t) => {
     activeToolRef.current = t;
     setActiveToolState(t);
     if (t === 'pen') {
       // Keep UI consistent with the dedicated pen mode (2px).
-      setBrushSize(2);
+      brushSizeRef.current = 2;
+      setBrushSizeState(2);
     }
-  };
+  }, []);
 
   const [brushColor, setBrushColorState] = useState('#000000');
   const brushColorRef = useRef('#000000');
@@ -149,7 +150,7 @@ const WhiteboardPage = () => {
     }
   };
 
-  const handleUndo = () => {
+  const handleUndo = useCallback(() => {
     if (!socket || !socket.connected) {
       console.error('Socket not connected');
       return;
@@ -157,9 +158,9 @@ const WhiteboardPage = () => {
     if (canvasRef.current && canvasRef.current.undo) {
       canvasRef.current.undo();
     }
-  };
+  }, [socket]);
 
-  const handleRedo = () => {
+  const handleRedo = useCallback(() => {
     if (!socket || !socket.connected) {
       console.error('Socket not connected');
       return;
@@ -167,10 +168,10 @@ const WhiteboardPage = () => {
     if (canvasRef.current && canvasRef.current.redo) {
       canvasRef.current.redo();
     }
-  };
+  }, [socket]);
 
   const handleDownload = () => canvasRef.current?.download?.();
-  const handleStampShape = (shapeType) => {
+  const handleStampShape = useCallback((shapeType) => {
     let obj;
     const stroke = '#000000';
     const sw = 2;
@@ -283,7 +284,7 @@ const WhiteboardPage = () => {
     }
 
     if (obj) canvasRef.current?.addFabricObject?.(obj);
-  };
+  }, []);
 
   // Keyboard shortcuts (skip when typing in inputs)
   useEffect(() => {
