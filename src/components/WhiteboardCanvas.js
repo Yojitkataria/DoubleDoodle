@@ -11,8 +11,9 @@ const BOARD_WIDTH = 4000;
 const BOARD_HEIGHT = 3000;
 
 function makeId() {
+  const globalObj = typeof window !== 'undefined' ? window : {};
   try {
-    return globalThis.crypto?.randomUUID?.() ?? `obj-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return globalObj.crypto?.randomUUID?.() ?? `obj-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   } catch {
     return `obj-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
