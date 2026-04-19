@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
 const http = require('http');
+const socketIo = require('socket.io');
 require('dotenv').config({ path: './config.env' });
 
 // Import routes
@@ -16,8 +17,48 @@ const { initializeSocket } = require('./socket/whiteboardSocket');
 const app = express();
 const server = http.createServer(app);
 
-// Initialize Socket.io
-const io = initializeSocket(server);
+// Initialize Socket.io (Render free tier friendly)
+const io = socketIo(server, {
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  upgradeTimeout: 30000,
+  transports: ['websocket', 'polling'],
+  cors: {
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      
+      const allowedOrigins = [
+        'https://webrtc-frontend-rkuo.onrender.com',
+        'https://doubledoodle.vercel.app',
+        'https://web-rtc-frontend-taupe.vercel.app',
+        'https://*.vercel.app',
+        'http://localhost:3000',
+        'http://localhost:3001'
+      ];
+      
+      // Check if the origin is allowed
+      const isAllowed = allowedOrigins.some(allowedOrigin => {
+        if (allowedOrigin.includes('*')) {
+          return origin.includes(allowedOrigin.replace('*', ''));
+        }
+        return origin === allowedOrigin;
+      });
+      
+      if (isAllowed) {
+        callback(null, true);
+      } else {
+        console.log('Socket CORS blocked origin:', origin);
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+  }
+});
+
+initializeSocket(io);
 
 // Security middleware
 app.use(helmet());

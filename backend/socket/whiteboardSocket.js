@@ -1,4 +1,3 @@
-const socketIo = require('socket.io');
 const jwt = require('jsonwebtoken');
 const Room = require('../models/Room');
 const Whiteboard = require('../models/Whiteboard');
@@ -15,42 +14,8 @@ const getRandomColor = () => {
 
 let io;
 
-const initializeSocket = (server) => {
-  io = socketIo(server, {
-    cors: {
-      origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
-        
-        const allowedOrigins = [
-          'https://webrtc-frontend-rkuo.onrender.com',
-          'https://doubledoodle.vercel.app',
-          'https://web-rtc-frontend-taupe.vercel.app',
-          'https://*.vercel.app',
-          'http://localhost:3000',
-          'http://localhost:3001'
-        ];
-        
-        // Check if the origin is allowed
-        const isAllowed = allowedOrigins.some(allowedOrigin => {
-          if (allowedOrigin.includes('*')) {
-            return origin.includes(allowedOrigin.replace('*', ''));
-          }
-          return origin === allowedOrigin;
-        });
-        
-        if (isAllowed) {
-          callback(null, true);
-        } else {
-          console.log('Socket CORS blocked origin:', origin);
-          callback(new Error('Not allowed by CORS'));
-        }
-      },
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization']
-    }
-  });
+const initializeSocket = (ioInstance) => {
+  io = ioInstance;
 
   // Authentication middleware
   io.use(async (socket, next) => {
@@ -145,10 +110,47 @@ const initializeSocket = (server) => {
     });
 
     // Handle drawing actions
-    socket.on('drawing-action', (data) => {
-      const { roomId, action } = data;
-      // Broadcast to all users in the room, including the sender
-      io.in(roomId).emit('drawing-action', action);
+    socket.on('drawing-action', async (data) => {
+      try {
+        const { roomId, action } = data || {};
+        if (!roomId || !action) return;
+
+        // Broadcast to all users in the room, including the sender
+        io.in(roomId).emit('drawing-action', action);
+
+        // Persist ADD actions so late joiners can replay the board.
+        if (action.type === 'ADD' && action.data) {
+          const room = await Room.findOne({ roomId, isActive: true }).select('whiteboardId');
+          if (!room?.whiteboardId) return;
+
+          await Whiteboard.updateOne(
+            { _id: room.whiteboardId, isActive: true },
+            { $push: { objects: action.data } }
+          );
+        }
+      } catch (error) {
+        console.error('drawing-action handler error:', error);
+      }
+    });
+
+    // Client can request current board state after joining.
+    socket.on('request-board-state', async (data) => {
+      try {
+        const { roomId } = data || {};
+        if (!roomId) return;
+
+        const room = await Room.findOne({ roomId, isActive: true }).select('whiteboardId');
+        if (!room?.whiteboardId) {
+          socket.emit('board-state', { objects: [] });
+          return;
+        }
+
+        const whiteboard = await Whiteboard.findOne({ _id: room.whiteboardId, isActive: true }).select('objects');
+        socket.emit('board-state', { objects: whiteboard?.objects || [] });
+      } catch (error) {
+        console.error('request-board-state handler error:', error);
+        socket.emit('board-state', { objects: [] });
+      }
     });
 
     // Handle cursor movement

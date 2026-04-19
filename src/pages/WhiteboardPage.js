@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import io from 'socket.io-client';
+import * as fabric from 'fabric';
 import WhiteboardCanvas from '../components/WhiteboardCanvas';
 import WhiteboardToolbar from '../components/WhiteboardToolbar';
 import WhiteboardChat from '../components/WhiteboardChat';
@@ -19,9 +20,33 @@ const WhiteboardPage = () => {
   const [socket, setSocket] = useState(null);
   const [room, setRoom] = useState(null);
   const [participants, setParticipants] = useState([]);
-  const [brushColor, setBrushColor] = useState('#000000');
-  const [brushSize, setBrushSize] = useState(5);
-  const [isDrawingMode, setIsDrawingMode] = useState(true);
+
+  // Critical: keep BOTH state + refs so Fabric event handlers always see latest values.
+  const [activeTool, setActiveToolState] = useState('pen');
+  const activeToolRef = useRef('pen');
+  const setActiveTool = (t) => {
+    activeToolRef.current = t;
+    setActiveToolState(t);
+    if (t === 'pen') {
+      // Keep UI consistent with the dedicated pen mode (2px).
+      setBrushSize(2);
+    }
+  };
+
+  const [brushColor, setBrushColorState] = useState('#000000');
+  const brushColorRef = useRef('#000000');
+  const setBrushColor = (c) => {
+    brushColorRef.current = c;
+    setBrushColorState(c);
+  };
+
+  const [brushSize, setBrushSizeState] = useState(5);
+  const brushSizeRef = useRef(5);
+  const setBrushSize = (s) => {
+    brushSizeRef.current = s;
+    setBrushSizeState(s);
+  };
+
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -34,7 +59,11 @@ const WhiteboardPage = () => {
     const newSocket = io(SOCKET_URL, {
       auth: {
         token: token
-      }
+      },
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      timeout: 20000,
     });
 
     newSocket.on('connect', () => {
@@ -43,6 +72,9 @@ const WhiteboardPage = () => {
       
       // Join the whiteboard room
       newSocket.emit('join-whiteboard', { roomId });
+
+      // Request persisted board state for mid-session joiners.
+      newSocket.emit('request-board-state', { roomId });
     });
 
     newSocket.on('disconnect', () => {
@@ -137,9 +169,192 @@ const WhiteboardPage = () => {
     }
   };
 
-  const handleToggleDrawingMode = () => {
-    setIsDrawingMode(!isDrawingMode);
+  const handleDownload = () => canvasRef.current?.download?.();
+  const handleStampShape = (shapeType) => {
+    let obj;
+    const stroke = '#000000';
+    const sw = 2;
+
+    if (shapeType === 'array') {
+      const n = parseInt(window.prompt('How many cells?', '5') || '5', 10);
+      const size = 50;
+      const rects = [];
+      for (let i = 0; i < n; i++) {
+        rects.push(
+          new fabric.Rect({
+            left: i * size,
+            top: 0,
+            width: size,
+            height: size,
+            fill: '#fff',
+            stroke,
+            strokeWidth: sw,
+          }),
+        );
+      }
+      obj = new fabric.Group(rects, { selectable: true, id: `stamp-${Date.now()}` });
+    } else if (shapeType === 'node') {
+      obj = new fabric.Circle({
+        radius: 35,
+        fill: '#fff',
+        stroke,
+        strokeWidth: sw,
+        selectable: true,
+        id: `stamp-${Date.now()}`,
+      });
+    } else if (shapeType === 'arrow') {
+      const line = new fabric.Line([0, 0, 100, 0], { stroke, strokeWidth: sw });
+      const head = new fabric.Triangle({
+        width: 14,
+        height: 14,
+        fill: stroke,
+        left: 93,
+        top: -7,
+        angle: 90,
+      });
+      obj = new fabric.Group([line, head], { selectable: true, id: `stamp-${Date.now()}` });
+    } else if (shapeType === 'stack') {
+      const items = [];
+      const w = 60,
+        h = 40,
+        n = 4;
+      for (let i = 0; i < n; i++) {
+        items.push(
+          new fabric.Rect({
+            left: 0,
+            top: i * h,
+            width: w,
+            height: h,
+            fill: '#fff',
+            stroke,
+            strokeWidth: sw,
+          }),
+        );
+      }
+      const label = new fabric.Text('TOP', { left: 10, top: -22, fontSize: 12, fill: '#555' });
+      obj = new fabric.Group([label, ...items], { selectable: true, id: `stamp-${Date.now()}` });
+    } else if (shapeType === 'queue') {
+      const items = [];
+      const size = 50,
+        n = 4;
+      for (let i = 0; i < n; i++) {
+        items.push(
+          new fabric.Rect({
+            left: i * size,
+            top: 0,
+            width: size,
+            height: size,
+            fill: '#fff',
+            stroke,
+            strokeWidth: sw,
+          }),
+        );
+      }
+      const front = new fabric.Text('FRONT', { left: 0, top: size + 4, fontSize: 11, fill: '#555' });
+      const rear = new fabric.Text('REAR', {
+        left: (n - 1) * size + 6,
+        top: size + 4,
+        fontSize: 11,
+        fill: '#555',
+      });
+      obj = new fabric.Group([...items, front, rear], { selectable: true, id: `stamp-${Date.now()}` });
+    } else if (shapeType === 'table') {
+      const rows = parseInt(window.prompt('Rows?', '3') || '3', 10);
+      const cols = parseInt(window.prompt('Cols?', '4') || '4', 10);
+      const cw = 60,
+        ch = 40;
+      const cells = [];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          cells.push(
+            new fabric.Rect({
+              left: c * cw,
+              top: r * ch,
+              width: cw,
+              height: ch,
+              fill: '#fff',
+              stroke,
+              strokeWidth: sw,
+            }),
+          );
+        }
+      }
+      obj = new fabric.Group(cells, { selectable: true, id: `stamp-${Date.now()}` });
+    }
+
+    if (obj) canvasRef.current?.addFabricObject?.(obj);
   };
+
+  // Keyboard shortcuts (skip when typing in inputs)
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (!e) return;
+
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT') return;
+      if (e.target?.isContentEditable) return;
+      if (tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      const key = String(e.key || '').toLowerCase();
+      const ctrlOrCmd = e.ctrlKey || e.metaKey;
+
+      if (ctrlOrCmd && key === 'z') {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      if (ctrlOrCmd && key === 'y') {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+
+      if (key === 'p') {
+        setActiveTool('pen');
+        return;
+      }
+      if (key === 'd') {
+        setActiveTool('draw');
+        return;
+      }
+      if (key === 'e') {
+        setActiveTool('eraser');
+        return;
+      }
+      if (key === 's') {
+        setActiveTool('select');
+        return;
+      }
+
+      if (key === '1') {
+        handleStampShape('array');
+        return;
+      }
+      if (key === '2') {
+        handleStampShape('node');
+        return;
+      }
+      if (key === '3') {
+        handleStampShape('arrow');
+        return;
+      }
+      if (key === '4') {
+        handleStampShape('stack');
+        return;
+      }
+      if (key === '5') {
+        handleStampShape('queue');
+        return;
+      }
+      if (key === '6') {
+        handleStampShape('table');
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [handleRedo, handleStampShape, handleUndo, setActiveTool]);
 
   const handleLeaveRoom = () => {
     if (socket) {
@@ -193,52 +408,55 @@ const WhiteboardPage = () => {
       </header>
 
       {/* Main Content */}
-      <main className="flex-grow flex overflow-hidden">
-        <div className="grid grid-cols-12 flex-grow h-full">
-          {/* Toolbar */}
-          <div className="col-span-2 bg-white border-r border-gray-200 overflow-y-auto">
-            <WhiteboardToolbar
-              brushColor={brushColor}
-              setBrushColor={setBrushColor}
-              brushSize={brushSize}
-              setBrushSize={setBrushSize}
-              onClear={handleClear}
-              onUndo={handleUndo}
-              onRedo={handleRedo}
-              canUndo={canUndo}
-              canRedo={canRedo}
-              isDrawingMode={isDrawingMode}
-              onToggleDrawingMode={handleToggleDrawingMode}
-              isConnected={isConnected}
-            />
-          </div>
+      <main className="flex-grow flex h-screen overflow-hidden">
+        {/* Left panel */}
+        <div className="w-52 bg-white border-r border-gray-200 overflow-y-auto flex-shrink-0">
+          <WhiteboardToolbar
+            brushColor={brushColor}
+            setBrushColor={setBrushColor}
+            brushSize={brushSize}
+            setBrushSize={setBrushSize}
+            onClear={handleClear}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            isConnected={isConnected}
+            activeTool={activeTool}
+            setActiveTool={setActiveTool}
+            onDownload={handleDownload}
+            onStampShape={handleStampShape}
+          />
+        </div>
 
-          {/* Canvas */}
-          <div className="col-span-8 flex items-center justify-center p-6 bg-gray-50">
-            <div className="w-full h-full bg-white rounded-lg shadow-md">
-              <WhiteboardCanvas
-                ref={canvasRef}
-                roomId={roomId}
-                socket={socket}
-                isDrawingEnabled={isDrawingMode}
-                brushColor={brushColor}
-                brushSize={brushSize}
-                setCanUndo={setCanUndo}
-                setCanRedo={setCanRedo}
-              />
-            </div>
-          </div>
-
-          {/* Chat & Participants */}
-          <div className="col-span-2 bg-white border-l border-gray-200 flex flex-col h-full">
-            <WhiteboardChat
-              socket={socket}
+        {/* Center */}
+        <div className="flex-1 overflow-hidden p-6 bg-gray-50">
+          <div className="w-full h-full bg-white rounded-lg shadow-md overflow-hidden">
+            <WhiteboardCanvas
+              ref={canvasRef}
               roomId={roomId}
-              participants={participants}
+              socket={socket}
+              activeToolRef={activeToolRef}
+              brushColorRef={brushColorRef}
+              brushSizeRef={brushSizeRef}
+              setCanUndo={setCanUndo}
+              setCanRedo={setCanRedo}
             />
           </div>
         </div>
+
+        {/* Right panel */}
+        <div className="w-56 bg-white border-l border-gray-200 flex flex-col h-full flex-shrink-0">
+          <WhiteboardChat socket={socket} roomId={roomId} participants={participants} />
+        </div>
       </main>
+
+      {/* Shortcut hint bar */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-20">
+        <div className="px-4 py-2 rounded-full bg-gray-100/90 text-gray-600 text-xs shadow-sm border border-gray-200 backdrop-blur">
+          P=pen&nbsp;&nbsp; D=draw&nbsp;&nbsp; E=erase&nbsp;&nbsp; S=select&nbsp;&nbsp; 1-6=shapes
+        </div>
+      </div>
     </div>
   );
 };

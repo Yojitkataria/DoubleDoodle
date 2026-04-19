@@ -64,6 +64,11 @@ const whiteboardSchema = new mongoose.Schema({
     }
   }],
   drawingActions: [drawingActionSchema],
+  // Persist Fabric.js object JSON for board replay (server stores ADD actions).
+  objects: {
+    type: [mongoose.Schema.Types.Mixed],
+    default: []
+  },
   settings: {
     canvasWidth: {
       type: Number,
